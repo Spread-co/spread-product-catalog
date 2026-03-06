@@ -305,7 +305,7 @@ export default {
         const client = makeClient();
 
         const params = {
-          p_limit: pageSizeValue.value + 1, // +1 to detect if there are more
+          p_limit: pageSizeValue.value,
           p_offset: currentOffset.value,
         };
         if (searchQuery.value.trim()) params.p_search = searchQuery.value.trim();
@@ -313,15 +313,9 @@ export default {
         if (props.content?.regionId) params.p_region_id = props.content.regionId;
 
         const data = await client.rpc('get_product_catalog', params);
-        const rows = Array.isArray(data) ? data : [];
-
-        // Determine hasMore from +1 trick
-        if (rows.length > pageSizeValue.value) {
-          hasMore.value = true;
-          rows.pop();
-        } else {
-          hasMore.value = false;
-        }
+        // RPC returns { products: [...], total_count: N, has_more: bool }
+        const rows = Array.isArray(data?.products) ? data.products : [];
+        hasMore.value = !!data?.has_more;
 
         if (reset) {
           products.value = rows;
