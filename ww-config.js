@@ -44,6 +44,11 @@ export default {
       bindable: true,
       defaultValue: '',
     },
+    requireRegion: {
+      label: { en: 'Require Region' },
+      type: 'OnOff',
+      defaultValue: true,
+    },
     heading: {
       label: { en: 'Heading' },
       type: 'Text',
@@ -64,6 +69,11 @@ export default {
     },
     showCategoryFilter: {
       label: { en: 'Show Category Filter' },
+      type: 'OnOff',
+      defaultValue: true,
+    },
+    showSortControl: {
+      label: { en: 'Show Sort Control' },
       type: 'OnOff',
       defaultValue: true,
     },

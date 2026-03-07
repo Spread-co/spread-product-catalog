@@ -1,101 +1,195 @@
 <template>
-  <div class="spread-catalog">
-    <!-- Header -->
-    <div class="spread-catalog__header" v-if="displayHeading">
-      <h2 class="spread-catalog__title">{{ displayHeading }}</h2>
-    </div>
+  <div class="spread-catalog" :class="{ 'spread-catalog--with-sidebar': showCategoryFilterComputed && !isMobile }">
 
-    <!-- Toolbar (search + category filter) -->
-    <div class="spread-catalog__toolbar" v-if="showSearchComputed || showCategoryFilterComputed">
-      <!-- Search -->
-      <div class="spread-catalog__search-wrap" v-if="showSearchComputed">
-        <svg class="spread-catalog__search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
-          <circle cx="11" cy="11" r="7" stroke="#6B7280" stroke-width="2"/>
-          <path d="M16 16l5 5" stroke="#6B7280" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <input
-          class="spread-catalog__search-input"
-          type="text"
-          placeholder="Search products…"
-          :value="searchQuery"
-          @input="onSearchInput"
-        />
-        <button
-          class="spread-catalog__search-clear"
-          v-if="searchQuery"
-          @click="clearSearch"
-          aria-label="Clear search"
-        >
-          &times;
-        </button>
-      </div>
-
-      <!-- Category filter -->
-      <div class="spread-catalog__filter-wrap" v-if="showCategoryFilterComputed">
-        <select class="spread-catalog__category-select" v-model="selectedCategoryId" @change="onCategoryChange">
-          <option value="">All Categories</option>
-          <option v-for="cat in categories" :key="cat.id" :value="cat.id">{{ cat.name }}</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Gate overlay (members_only + not authenticated) -->
-    <div class="spread-catalog__gate" v-if="isGated">
-      <div class="spread-catalog__gate-card">
+    <!-- Region gate -->
+    <div v-if="regionRequired && !regionIdValue" class="spread-catalog__region-gate">
+      <div class="spread-catalog__region-gate-card">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
-          <rect x="3" y="11" width="18" height="11" rx="2" stroke="#4B162D" stroke-width="2"/>
-          <path d="M7 11V7a5 5 0 0110 0v4" stroke="#4B162D" stroke-width="2" stroke-linecap="round"/>
+          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#4B162D" stroke-width="2" fill="none"/>
+          <circle cx="12" cy="9" r="2.5" stroke="#4B162D" stroke-width="2" fill="none"/>
         </svg>
-        <h3 class="spread-catalog__gate-title">Members Only</h3>
-        <p class="spread-catalog__gate-text">Sign in or become a member to browse our full product catalog.</p>
+        <h3 class="spread-catalog__region-gate-title">Select Your Delivery Region</h3>
+        <p class="spread-catalog__region-gate-text">Choose your delivery area to see products available near you.</p>
       </div>
     </div>
 
-    <!-- Loading skeleton -->
-    <div class="spread-catalog__grid" v-else-if="loading && !products.length">
-      <div class="spread-catalog__skeleton-card" v-for="n in skeletonCount" :key="'sk-' + n">
-        <div class="spread-catalog__skeleton-image"></div>
-        <div class="spread-catalog__skeleton-body">
-          <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--lg"></div>
-          <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--sm"></div>
-          <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--md"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Error state -->
-    <div class="spread-catalog__error" v-else-if="error">
-      <div class="spread-catalog__error-card">
-        <span class="spread-catalog__error-icon">!</span>
-        <p class="spread-catalog__error-message">{{ error }}</p>
-        <button class="spread-catalog__btn spread-catalog__btn--secondary" @click="fetchProducts(true)">Try Again</button>
-      </div>
-    </div>
-
-    <!-- Empty state -->
-    <div class="spread-catalog__empty" v-else-if="!products.length">
-      <p class="spread-catalog__empty-text">{{ displayEmptyMessage }}</p>
-    </div>
-
-    <!-- Product grid -->
     <template v-else>
-      <div class="spread-catalog__grid">
-        <div
-          v-for="product in products"
-          :key="product.id"
-          class="spread-catalog__card"
-          :class="{ 'spread-catalog__card--oos': !product.in_stock }"
-          @click="handleProductClick(product)"
-        >
-          <!-- Image -->
-          <div class="spread-catalog__card-image-wrap">
-            <img
-              v-if="product.image_url"
-              :src="product.image_url"
-              :alt="product.name"
-              class="spread-catalog__card-image"
-              loading="lazy"
-            />
+      <!-- Header -->
+      <div class="spread-catalog__header" v-if="displayHeading">
+        <h2 class="spread-catalog__title">{{ displayHeading }}</h2>
+      </div>
+
+      <!-- Mobile category chips (horizontal scroll) -->
+      <div class="spread-catalog__chips" v-if="showCategoryFilterComputed && isMobile">
+        <button
+          class="spread-catalog__chip"
+          :class="{ 'spread-catalog__chip--active': !selectedCategoryId }"
+          @click="selectCategory('')"
+        >All</button>
+        <template v-for="root in categoryTree" :key="root.id">
+          <button
+            class="spread-catalog__chip"
+            :class="{ 'spread-catalog__chip--active': selectedCategoryId === root.id }"
+            @click="selectCategory(root.id)"
+          >{{ root.icon }} {{ root.name }}</button>
+          <template v-if="selectedCategoryId === root.id && root.children && root.children.length">
+            <button
+              v-for="child in root.children"
+              :key="child.id"
+              class="spread-catalog__chip spread-catalog__chip--sub"
+              :class="{ 'spread-catalog__chip--active': selectedCategoryId === child.id }"
+              @click.stop="selectCategory(child.id)"
+            >{{ child.name }}</button>
+          </template>
+        </template>
+      </div>
+
+      <div class="spread-catalog__layout">
+        <!-- Desktop sidebar accordion tree -->
+        <aside class="spread-catalog__sidebar" v-if="showCategoryFilterComputed && !isMobile">
+          <h3 class="spread-catalog__sidebar-title">Categories</h3>
+          <button
+            class="spread-catalog__sidebar-item spread-catalog__sidebar-item--all"
+            :class="{ 'spread-catalog__sidebar-item--active': !selectedCategoryId }"
+            @click="selectCategory('')"
+          >All Products</button>
+          <div v-for="root in categoryTree" :key="root.id" class="spread-catalog__sidebar-group">
+            <button
+              class="spread-catalog__sidebar-item spread-catalog__sidebar-item--root"
+              :class="{
+                'spread-catalog__sidebar-item--active': selectedCategoryId === root.id,
+                'spread-catalog__sidebar-item--expanded': expandedCategories[root.id]
+              }"
+              @click="toggleAccordion(root)"
+            >
+              <span class="spread-catalog__sidebar-icon">{{ root.icon }}</span>
+              <span class="spread-catalog__sidebar-label">{{ root.name }}</span>
+              <svg v-if="root.children && root.children.length" class="spread-catalog__sidebar-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none">
+                <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+            <div v-if="expandedCategories[root.id] && root.children && root.children.length" class="spread-catalog__sidebar-children">
+              <div v-for="mid in root.children" :key="mid.id">
+                <button
+                  class="spread-catalog__sidebar-item spread-catalog__sidebar-item--mid"
+                  :class="{
+                    'spread-catalog__sidebar-item--active': selectedCategoryId === mid.id,
+                    'spread-catalog__sidebar-item--expanded': expandedCategories[mid.id]
+                  }"
+                  @click="toggleAccordion(mid)"
+                >
+                  <span class="spread-catalog__sidebar-label">{{ mid.name }}</span>
+                  <svg v-if="mid.children && mid.children.length" class="spread-catalog__sidebar-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <div v-if="expandedCategories[mid.id] && mid.children && mid.children.length" class="spread-catalog__sidebar-leaves">
+                  <button
+                    v-for="leaf in mid.children"
+                    :key="leaf.id"
+                    class="spread-catalog__sidebar-item spread-catalog__sidebar-item--leaf"
+                    :class="{ 'spread-catalog__sidebar-item--active': selectedCategoryId === leaf.id }"
+                    @click="selectCategory(leaf.id)"
+                  >{{ leaf.name }}</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <div class="spread-catalog__main">
+          <!-- Toolbar (search + sort) -->
+          <div class="spread-catalog__toolbar" v-if="showSearchComputed || showSortComputed">
+            <!-- Search -->
+            <div class="spread-catalog__search-wrap" v-if="showSearchComputed">
+              <svg class="spread-catalog__search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="11" cy="11" r="7" stroke="#6B7280" stroke-width="2"/>
+                <path d="M16 16l5 5" stroke="#6B7280" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <input
+                class="spread-catalog__search-input"
+                type="text"
+                placeholder="Search products…"
+                :value="searchQuery"
+                @input="onSearchInput"
+              />
+              <button
+                class="spread-catalog__search-clear"
+                v-if="searchQuery"
+                @click="clearSearch"
+                aria-label="Clear search"
+              >
+                &times;
+              </button>
+            </div>
+            <!-- Sort -->
+            <div class="spread-catalog__sort-wrap" v-if="showSortComputed">
+              <select v-model="sortValue" class="spread-catalog__sort-select" @change="onSortChange">
+                <option value="name">Name A–Z</option>
+                <option value="price_asc">Price: Low → High</option>
+                <option value="price_desc">Price: High → Low</option>
+                <option value="newest">Newest First</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Gate overlay (members_only + not authenticated) -->
+          <div class="spread-catalog__gate" v-if="isGated">
+            <div class="spread-catalog__gate-card">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="11" width="18" height="11" rx="2" stroke="#4B162D" stroke-width="2"/>
+                <path d="M7 11V7a5 5 0 0110 0v4" stroke="#4B162D" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+              <h3 class="spread-catalog__gate-title">Members Only</h3>
+              <p class="spread-catalog__gate-text">Sign in or become a member to browse our full product catalog.</p>
+            </div>
+          </div>
+
+          <!-- Loading skeleton -->
+          <div class="spread-catalog__grid" v-else-if="loading && !products.length">
+            <div class="spread-catalog__skeleton-card" v-for="n in skeletonCount" :key="'sk-' + n">
+              <div class="spread-catalog__skeleton-image"></div>
+              <div class="spread-catalog__skeleton-body">
+                <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--lg"></div>
+                <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--sm"></div>
+                <div class="spread-catalog__skeleton-bar spread-catalog__skeleton-bar--md"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error state -->
+          <div class="spread-catalog__error" v-else-if="error">
+            <div class="spread-catalog__error-card">
+              <span class="spread-catalog__error-icon">!</span>
+              <p class="spread-catalog__error-message">{{ error }}</p>
+              <button class="spread-catalog__btn spread-catalog__btn--secondary" @click="fetchProducts(true)">Try Again</button>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div class="spread-catalog__empty" v-else-if="!products.length">
+            <p class="spread-catalog__empty-text">{{ displayEmptyMessage }}</p>
+          </div>
+
+          <!-- Product grid -->
+          <template v-else>
+            <div class="spread-catalog__grid">
+              <div
+                v-for="product in products"
+                :key="product.id"
+                class="spread-catalog__card"
+                :class="{ 'spread-catalog__card--oos': !product.in_stock }"
+                @click="handleProductClick(product)"
+              >
+                <!-- Image -->
+                <div class="spread-catalog__card-image-wrap">
+                  <img
+                    v-if="product.image_url"
+                    :src="product.image_url"
+                    :alt="product.name"
+                    class="spread-catalog__card-image"
+                    loading="lazy"
+                  />
             <div v-else class="spread-catalog__card-image-placeholder">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
                 <rect x="2" y="2" width="20" height="20" rx="4" stroke="#CBD5E1" stroke-width="1.5"/>
@@ -161,11 +255,14 @@
         </button>
       </div>
     </template>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 
 /* ------------------------------------------------------------------ */
 /*  Inline Supabase client (self-contained — no shared lib imports)   */
@@ -186,24 +283,6 @@ function createSpreadClient({ supabaseUrl, supabaseAnonKey, accessToken = null }
       }
       return res.json();
     },
-    async from(table, { select = '*', filters = {}, order, limit, offset } = {}) {
-      const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
-      url.searchParams.set('select', select);
-      for (const [col, val] of Object.entries(filters)) {
-        url.searchParams.set(col, val);
-      }
-      if (order) url.searchParams.set('order', order);
-      if (limit) url.searchParams.set('limit', String(limit));
-      if (offset) url.searchParams.set('offset', String(offset));
-      const fetchHeaders = { ...headers };
-      delete fetchHeaders['Content-Type'];
-      const res = await fetch(url.toString(), { method: 'GET', headers: fetchHeaders });
-      if (!res.ok) {
-        const e = await res.json().catch(() => ({}));
-        throw Object.assign(new Error(e.message || res.statusText), { status: res.status, code: e.code });
-      }
-      return res.json();
-    },
   };
 }
 
@@ -218,12 +297,17 @@ const EDITOR_MOCK_PRODUCTS = [
   { id: '5', name: 'Raw Honey (500g)', slug: 'raw-honey-500g', description: 'Unprocessed raw honey from regional beekeepers.', image_url: '', category_name: 'Pantry', category_id: 'c5', default_price: 1450, member_price: 1450, display_price: 1450, is_member_price: true, currency: 'aud', default_variant_id: 'v5', in_stock: true },
   { id: '6', name: 'Baby Spinach (200g)', slug: 'baby-spinach-200g', description: 'Tender baby spinach leaves, triple-washed.', image_url: '', category_name: 'Vegetables', category_id: 'c1', default_price: 450, member_price: 450, display_price: 450, is_member_price: true, currency: 'aud', default_variant_id: 'v6', in_stock: false },
 ];
-const EDITOR_MOCK_CATEGORIES = [
-  { id: 'c1', name: 'Vegetables' },
-  { id: 'c2', name: 'Dairy & Eggs' },
-  { id: 'c3', name: 'Bakery' },
-  { id: 'c4', name: 'Fruit' },
-  { id: 'c5', name: 'Pantry' },
+const EDITOR_MOCK_TREE = [
+  { id: 'c4', name: 'Fruit', slug: 'fruit', icon: '🍎', children: [
+    { id: 'c4a', name: 'Citrus', slug: 'citrus', icon: '🍊', children: [] },
+    { id: 'c4b', name: 'Berries', slug: 'berries', icon: '🫐', children: [] },
+  ]},
+  { id: 'c1', name: 'Vegetables', slug: 'vegetables', icon: '🥬', children: [
+    { id: 'c1a', name: 'Leafy Greens', slug: 'leafy-greens', icon: '🥗', children: [] },
+  ]},
+  { id: 'c2', name: 'Dairy & Eggs', slug: 'dairy-eggs', icon: '🥚', children: [] },
+  { id: 'c3', name: 'Bakery', slug: 'bakery', icon: '🍞', children: [] },
+  { id: 'c5', name: 'Pantry', slug: 'pantry', icon: '🫙', children: [] },
 ];
 
 export default {
@@ -240,14 +324,17 @@ export default {
   setup(props, { emit }) {
     /* ---- State ---- */
     const products = ref([]);
-    const categories = ref([]);
+    const categoryTree = ref([]);
     const loading = ref(false);
     const error = ref(null);
     const hasMore = ref(false);
     const currentOffset = ref(0);
     const searchQuery = ref('');
     const selectedCategoryId = ref('');
+    const sortValue = ref('name');
     const addingProductId = ref(null);
+    const expandedCategories = reactive({});
+    const windowWidth = ref(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
     let searchTimeout = null;
 
@@ -257,6 +344,7 @@ export default {
     const displayAddToCartLabel = computed(() => props.content?.addToCartLabel || 'Add to Cart');
     const showSearchComputed = computed(() => props.content?.showSearch !== false);
     const showCategoryFilterComputed = computed(() => props.content?.showCategoryFilter !== false);
+    const showSortComputed = computed(() => props.content?.showSortControl !== false);
     const showPriceComputed = computed(() => props.content?.showPrice !== false);
     const showAddToCartComputed = computed(() => props.content?.showAddToCart !== false);
     const hasToken = computed(() => !!(props.content?.accessToken));
@@ -264,6 +352,9 @@ export default {
     const isGated = computed(() => accessModeValue.value === 'members_only' && !hasToken.value);
     const pageSizeValue = computed(() => Math.max(4, Math.min(60, Number(props.content?.pageSize) || 12)));
     const skeletonCount = computed(() => Math.min(pageSizeValue.value, 8));
+    const regionIdValue = computed(() => props.content?.regionId || '');
+    const regionRequired = computed(() => props.content?.requireRegion !== false);
+    const isMobile = computed(() => windowWidth.value < 768);
     const isEditor = computed(() => {
       /* wwEditor:start */
       return !!(typeof wwLib !== 'undefined' && props.wwEditorState);
@@ -283,11 +374,12 @@ export default {
     /* ---- Fetch products ---- */
     async function fetchProducts(reset = true) {
       if (isGated.value) return;
+      if (regionRequired.value && !regionIdValue.value) return;
 
       /* wwEditor:start */
       if (isEditor.value) {
         products.value = EDITOR_MOCK_PRODUCTS;
-        categories.value = EDITOR_MOCK_CATEGORIES;
+        categoryTree.value = EDITOR_MOCK_TREE;
         hasMore.value = false;
         return;
       }
@@ -307,13 +399,13 @@ export default {
         const params = {
           p_limit: pageSizeValue.value,
           p_offset: currentOffset.value,
+          p_sort: sortValue.value,
         };
         if (searchQuery.value.trim()) params.p_search = searchQuery.value.trim();
         if (selectedCategoryId.value) params.p_category_id = selectedCategoryId.value;
-        if (props.content?.regionId) params.p_region_id = props.content.regionId;
+        if (regionIdValue.value) params.p_region_id = regionIdValue.value;
 
         const data = await client.rpc('get_product_catalog', params);
-        // RPC returns { products: [...], total_count: N, has_more: bool }
         const rows = Array.isArray(data?.products) ? data.products : [];
         hasMore.value = !!data?.has_more;
 
@@ -339,26 +431,40 @@ export default {
       }
     }
 
-    /* ---- Fetch categories ---- */
-    async function fetchCategories() {
+    /* ---- Fetch category tree ---- */
+    async function fetchCategoryTree() {
       /* wwEditor:start */
       if (isEditor.value) {
-        categories.value = EDITOR_MOCK_CATEGORIES;
+        categoryTree.value = EDITOR_MOCK_TREE;
         return;
       }
       /* wwEditor:end */
 
       try {
         const client = makeClient();
-        const data = await client.from('categories', {
-          select: 'id,name',
-          order: 'name.asc',
-        });
-        categories.value = Array.isArray(data) ? data : [];
+        const tree = await client.rpc('get_category_tree');
+        categoryTree.value = Array.isArray(tree) ? tree : [];
       } catch (_) {
-        // Non-critical — category filter just won't populate
-        categories.value = [];
+        categoryTree.value = [];
       }
+    }
+
+    /* ---- Category accordion / selection ---- */
+    function selectCategory(catId) {
+      selectedCategoryId.value = catId;
+      fetchProducts(true);
+    }
+
+    function toggleAccordion(cat) {
+      const isExpanded = expandedCategories[cat.id];
+      if (isExpanded) {
+        // Collapse it — but also select it as the filter
+        expandedCategories[cat.id] = false;
+      } else {
+        expandedCategories[cat.id] = true;
+      }
+      selectedCategoryId.value = cat.id;
+      fetchProducts(true);
     }
 
     /* ---- Handlers ---- */
@@ -376,7 +482,7 @@ export default {
       fetchProducts(true);
     }
 
-    function onCategoryChange() {
+    function onSortChange() {
       fetchProducts(true);
     }
 
@@ -436,15 +542,23 @@ export default {
       return str.slice(0, max).trimEnd() + '…';
     }
 
+    /* ---- Responsive listener ---- */
+    function onResize() {
+      windowWidth.value = window.innerWidth;
+    }
+
     /* ---- Lifecycle ---- */
     onMounted(() => {
+      fetchCategoryTree();
       fetchProducts(true);
-      fetchCategories();
+      if (typeof window !== 'undefined') {
+        window.addEventListener('resize', onResize);
+      }
     });
 
-    // Re-fetch when accessToken or accessMode changes (e.g. user logs in)
+    // Re-fetch when accessToken, accessMode, or regionId changes
     watch(
-      () => [props.content?.accessToken, props.content?.accessMode],
+      () => [props.content?.accessToken, props.content?.accessMode, props.content?.regionId],
       () => {
         fetchProducts(true);
       },
@@ -452,25 +566,33 @@ export default {
 
     return {
       products,
-      categories,
+      categoryTree,
       loading,
       error,
       hasMore,
       searchQuery,
       selectedCategoryId,
+      sortValue,
       addingProductId,
+      expandedCategories,
+      isMobile,
       displayHeading,
       displayEmptyMessage,
       displayAddToCartLabel,
       showSearchComputed,
       showCategoryFilterComputed,
+      showSortComputed,
       showPriceComputed,
       showAddToCartComputed,
       isGated,
       skeletonCount,
+      regionIdValue,
+      regionRequired,
+      selectCategory,
+      toggleAccordion,
       onSearchInput,
       clearSearch,
-      onCategoryChange,
+      onSortChange,
       loadMore,
       handleProductClick,
       handleAddToCart,
@@ -505,7 +627,7 @@ export default {
 
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   width: 100%;
-  max-width: 1200px;
+  max-width: 1280px;
   margin: 0 auto;
   padding: 0 24px;
   box-sizing: border-box;
@@ -530,6 +652,7 @@ export default {
   gap: 12px;
   margin-bottom: 20px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .spread-catalog__search-wrap {
@@ -586,11 +709,12 @@ export default {
   color: var(--dark-grey);
 }
 
-.spread-catalog__filter-wrap {
+/* ---- Sort control ---- */
+.spread-catalog__sort-wrap {
   min-width: 160px;
 }
 
-.spread-catalog__category-select {
+.spread-catalog__sort-select {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid var(--bone-border);
@@ -605,8 +729,313 @@ export default {
   appearance: auto;
 }
 
-.spread-catalog__category-select:focus {
+.spread-catalog__sort-select:focus {
   border-color: var(--burnt-orange);
+}
+
+/* ================================================================== */
+/*  SIDEBAR + MAIN LAYOUT (desktop ≥ 768px)                          */
+/* ================================================================== */
+.spread-catalog__layout {
+  display: flex;
+  gap: 24px;
+}
+
+.spread-catalog__main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Sidebar (desktop accordion tree) ---- */
+.spread-catalog__sidebar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .spread-catalog__sidebar {
+    display: block;
+    width: 220px;
+    flex-shrink: 0;
+  }
+}
+
+.spread-catalog__sidebar-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--mid-grey);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 12px;
+}
+
+.spread-catalog__sidebar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* All categories link */
+.spread-catalog__sidebar-all {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dark-grey);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+  margin-bottom: 4px;
+}
+
+.spread-catalog__sidebar-all:hover {
+  background: var(--cream);
+}
+
+.spread-catalog__sidebar-all--active {
+  background: var(--cream);
+  color: var(--burnt-orange);
+}
+
+/* Root level accordion */
+.spread-catalog__acc {
+  margin-bottom: 2px;
+}
+
+.spread-catalog__acc-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--dark-grey);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.spread-catalog__acc-toggle:hover {
+  background: var(--cream);
+}
+
+.spread-catalog__acc-toggle--active {
+  color: var(--burnt-orange);
+  background: var(--cream);
+}
+
+.spread-catalog__acc-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.spread-catalog__acc-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--light-grey);
+  transition: transform 0.2s ease;
+}
+
+.spread-catalog__acc-arrow--open {
+  transform: rotate(90deg);
+}
+
+/* Children (mid-level) */
+.spread-catalog__acc-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 20px;
+}
+
+.spread-catalog__acc-child {
+  margin-bottom: 1px;
+}
+
+.spread-catalog__acc-child-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mid-grey);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.spread-catalog__acc-child-btn:hover {
+  background: var(--cream);
+}
+
+.spread-catalog__acc-child-btn--active {
+  color: var(--burnt-orange);
+  font-weight: 600;
+  background: var(--cream);
+}
+
+/* Grandchildren (leaf-level) */
+.spread-catalog__acc-grandchildren {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 16px;
+}
+
+.spread-catalog__acc-grandchild-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--light-grey);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.spread-catalog__acc-grandchild-btn:hover {
+  background: var(--cream);
+  color: var(--mid-grey);
+}
+
+.spread-catalog__acc-grandchild-btn--active {
+  color: var(--burnt-orange);
+  font-weight: 600;
+}
+
+/* ================================================================== */
+/*  MOBILE CHIP STRIP (< 768px)                                      */
+/* ================================================================== */
+.spread-catalog__chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.spread-catalog__chips::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .spread-catalog__chips {
+    display: none;
+  }
+}
+
+.spread-catalog__chip {
+  flex-shrink: 0;
+  padding: 7px 16px;
+  border: 1px solid var(--bone-border);
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dark-grey);
+  background: var(--white);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.spread-catalog__chip:hover {
+  border-color: var(--burnt-orange);
+}
+
+.spread-catalog__chip--active {
+  background: var(--burnt-orange);
+  color: var(--white);
+  border-color: var(--burnt-orange);
+}
+
+.spread-catalog__chip-children {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.spread-catalog__chip-child {
+  flex-shrink: 0;
+  padding: 5px 12px;
+  border: 1px solid var(--shell-border);
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mid-grey);
+  background: var(--cream);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.spread-catalog__chip-child:hover {
+  border-color: var(--burnt-orange);
+}
+
+.spread-catalog__chip-child--active {
+  background: var(--burnt-orange);
+  color: var(--white);
+  border-color: var(--burnt-orange);
+}
+
+/* ================================================================== */
+/*  REGION GATE OVERLAY                                                */
+/* ================================================================== */
+.spread-catalog__region-gate {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.spread-catalog__region-gate-card {
+  text-align: center;
+  background: var(--cream);
+  border: 1px solid var(--bone-border);
+  border-radius: 16px;
+  padding: 32px 40px;
+  max-width: 420px;
+}
+
+.spread-catalog__region-gate-icon {
+  font-size: 36px;
+  margin-bottom: 4px;
+}
+
+.spread-catalog__region-gate-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--tyrian);
+  margin: 8px 0;
+}
+
+.spread-catalog__region-gate-text {
+  font-size: 14px;
+  color: var(--mid-grey);
+  line-height: 1.6;
+  margin: 0;
 }
 
 /* ---- Product grid ---- */
@@ -621,11 +1050,17 @@ export default {
 }
 
 @media (min-width: 768px) {
-  .spread-catalog__grid { grid-template-columns: repeat(3, 1fr); }
+  .spread-catalog__grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 @media (min-width: 1024px) {
-  .spread-catalog__grid { grid-template-columns: repeat(4, 1fr); }
+  .spread-catalog__grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* When no sidebar, go to 4 columns on large screens */
+.spread-catalog:not(.spread-catalog--with-sidebar) .spread-catalog__grid {
+  @media (min-width: 768px) { grid-template-columns: repeat(3, 1fr); }
+  @media (min-width: 1024px) { grid-template-columns: repeat(4, 1fr); }
 }
 
 /* ---- Card (inline — matches spread-product-card design) ---- */
@@ -654,7 +1089,7 @@ export default {
 .spread-catalog__card-image-wrap {
   position: relative;
   width: 100%;
-  padding-top: 75%; /* 4:3 */
+  padding-top: 75%;
   overflow: hidden;
   background: var(--cream);
 }
@@ -820,7 +1255,7 @@ export default {
   cursor: not-allowed;
 }
 
-/* ---- Gate overlay ---- */
+/* ---- Gate overlay (membership) ---- */
 .spread-catalog__gate {
   display: flex;
   justify-content: center;
